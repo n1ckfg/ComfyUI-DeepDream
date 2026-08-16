@@ -242,9 +242,12 @@ class CascadeGaussianSmoothing(nn.Module):
         # Apply Gaussian kernels depthwise over the input (hence groups equals the number of input channels)
         # shape = (1, 3, H, W) -> (1, 3, H, W)
         num_in_channels = input.shape[1]
-        grad1 = self.conv(input, weight=self.weight1, groups=num_in_channels)
-        grad2 = self.conv(input, weight=self.weight2, groups=num_in_channels)
-        grad3 = self.conv(input, weight=self.weight3, groups=num_in_channels)
+        weight1 = self.weight1.to(input.device)
+        weight2 = self.weight2.to(input.device)
+        weight3 = self.weight3.to(input.device)
+        grad1 = self.conv(input, weight=weight1, groups=num_in_channels)
+        grad2 = self.conv(input, weight=weight2, groups=num_in_channels)
+        grad3 = self.conv(input, weight=weight3, groups=num_in_channels)
 
         return (grad1 + grad2 + grad3) / 3
 

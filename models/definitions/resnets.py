@@ -7,7 +7,7 @@ from torchvision import models
 from torch.hub import download_url_to_file
 
 
-from utils.constants import *
+from dd_utils.constants import *
 
 
 class ResNet50(torch.nn.Module):

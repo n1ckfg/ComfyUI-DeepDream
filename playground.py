@@ -17,9 +17,9 @@ import cv2 as cv
 from torchvision import transforms
 
 
-from utils.constants import *
-import utils.utils as utils
-import utils.video_utils as video_utils
+from dd_utils.constants import *
+import dd_utils.utils as utils
+import dd_utils.video_utils as video_utils
 from models.definitions.vggs import Vgg16
 
 

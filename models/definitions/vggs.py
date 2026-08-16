@@ -5,7 +5,7 @@ import torch
 from torchvision import models
 
 
-from utils.constants import SupportedPretrainedWeights
+from dd_utils.constants import SupportedPretrainedWeights
 
 
 class Vgg16(torch.nn.Module):
