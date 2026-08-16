@@ -70,7 +70,8 @@ Shared dream params (built by `_dream_input_specs()`): `model_name`, `pretrained
 
 Key helpers:
 
-- `_get_dream_model(model_name, weights, device)` — module-level cache of built dream models, keyed on `(model, weights, device)`, so repeated executions (and every frame of a video) reuse one model instead of rebuilding/downloading.
+- `_autograd_enabled()` — context manager wrapping the whole body of every node's `dream()`. ComfyUI executes nodes inside `torch.inference_mode()`, which is strictly stronger than `no_grad()`: tensors *created* under it are "inference tensors" that can never participate in autograd. Since DeepDream *is* gradient ascent on the input, the nodes re-enter `torch.inference_mode(False)` + `torch.enable_grad()`. Model construction has to happen inside the same block — `conv2d` saves its weight for the backward pass, so inference-tensor weights raise *"Inference tensors cannot be saved for backward"* even though the weights are frozen. Without this, `loss.backward()` fails with *"element 0 of tensors does not require grad and does not have a grad_fn"*.
+- `_get_dream_model(model_name, weights, device)` — module-level cache of built dream models, keyed on `(model, weights, device)`, so repeated executions (and every frame of a video) reuse one model instead of rebuilding/downloading. Populated inside `_autograd_enabled()`, so cached models are never inference tensors.
 - `_validate_dream_params` / `_validate_layers` — fail early with a clear message for unsupported weights/model combos (PLACES_365 is ALEXNET/RESNET50-only) and for layer names not in the model's `layer_names`.
 - `_build_config` — assembles the config dict the core expects (script-only keys like `dump_dir`/`should_display` are set to inert values).
 - `_prepare_frame` / `_resize_to_width` / `_dream_frame` / `_frames_to_tensor` — tensor↔numpy boundary handling (ComfyUI IMAGE → HWC float32 `[0,1]` numpy → core → stacked batch tensor back on device), optional seeded noise, optional width resize.
@@ -146,7 +147,10 @@ The script's Ouroboros/video modes wrap `deep_dream_static_image` per frame, add
 - **The helper package is named `dd_utils`, not `utils`** — the generic name collides with other ComfyUI custom nodes' `utils` packages in `sys.modules` (e.g. Civicomfy), which breaks bare `import utils.utils` at node load time.
 - **Frames are named `%06d.jpg`** (script path) — the ffmpeg muxer and `valid_frames` both depend on this.
 - **Layer selection is by name** (`--layers_to_use relu4_3` CLI / `layers_to_use` node input); the name→index resolution lives in `deep_dream_static_image`, and each model wrapper owns its own `layer_names`.
+- **Autograd must be explicitly re-enabled in the ComfyUI path** — every node body runs inside `_autograd_enabled()` (`torch.inference_mode(False)` + `torch.enable_grad()`), model construction included. This is the one invariant that makes DeepDream work as a ComfyUI node at all; see `_autograd_enabled` above.
 - **Model weights are frozen** everywhere (`requires_grad=False`); only the input tensor is optimized.
+- **Failures raise, they never `exit()`** — the nodes run inside a long-lived server process, and `SystemExit` escapes ComfyUI's `except Exception` handler and takes down the worker. `get_new_shape` raises `ValueError` when the pyramid gets too small (reachable straight from the `pyramid_size`/`pyramid_ratio` widgets).
+- **Places365 checkpoints load with `map_location='cpu'`** — they were serialized on CUDA machines and otherwise fail to deserialize on CPU/MPS hosts; the caller then moves the assembled model to the target device.
 - **Dream models are cached** per `(model_name, weights, device)` in `__init__.py`; the script path builds a fresh model per run.
 - **Places365 weights are downloaded lazily** and cached under `models/binaries/`.
 - Output filenames encode the full hyperparameter set for reproducibility.

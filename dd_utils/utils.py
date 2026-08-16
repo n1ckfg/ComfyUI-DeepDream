@@ -173,9 +173,11 @@ def get_new_shape(config, base_shape, pyramid_level):
     new_shape = np.round(np.float32(base_shape)*(pyramid_ratio**exponent)).astype(np.int32)
 
     if new_shape[0] < SHAPE_MARGIN or new_shape[1] < SHAPE_MARGIN:
-        print(f'Pyramid size {config["pyramid_size"]} with pyramid ratio {config["pyramid_ratio"]} gives too small pyramid levels with size={new_shape}')
-        print(f'Please change parameters.')
-        exit(0)
+        # Raise instead of exit(): this is reachable from the ComfyUI node widgets, and
+        # SystemExit would tear down the server process instead of failing just this node.
+        raise ValueError(
+            f'Pyramid size {config["pyramid_size"]} with pyramid ratio {config["pyramid_ratio"]} gives too small '
+            f'pyramid levels with size={new_shape}. Please lower pyramid_size/pyramid_ratio or use a larger image.')
 
     return new_shape
 

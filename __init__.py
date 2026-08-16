@@ -1,3 +1,4 @@
+import contextlib
 import os
 import sys
 
@@ -19,6 +20,23 @@ from dd_utils.constants import SupportedModels, SupportedPretrainedWeights, TRAN
 #
 
 _dream_model_cache = {}
+
+
+@contextlib.contextmanager
+def _autograd_enabled():
+    """Re-enable autograd inside ComfyUI's torch.inference_mode() execution context.
+
+    ComfyUI runs every node under `torch.inference_mode()` (execution.py), which is
+    strictly stronger than `no_grad()`: tensors *created* there are "inference tensors"
+    that can never take part in autograd. DeepDream is gradient ascent on the input, so
+    it needs a real graph, hence `inference_mode(False)`.
+
+    Everything autograd touches must be built inside this block, model weights included -
+    conv2d saves its weight for the backward pass, and an inference-tensor weight raises
+    "Inference tensors cannot be saved for backward" even though the weights are frozen.
+    """
+    with torch.inference_mode(False), torch.enable_grad():
+        yield
 
 
 def _get_dream_model(model_name, pretrained_weights, device):
@@ -126,12 +144,13 @@ class DeepDreamImage:
         _validate_dream_params(model_name, pretrained_weights, layers_to_use)
         config = _build_config(model_name, pretrained_weights, layers_to_use, pyramid_size, pyramid_ratio,
                                num_gradient_ascent_iterations, lr, spatial_shift_size, smoothing_coefficient)
-        model = _get_dream_model(model_name, pretrained_weights, device)
-        _validate_layers(model, config['layers_to_use'])
+        with _autograd_enabled():
+            model = _get_dream_model(model_name, pretrained_weights, device)
+            _validate_layers(model, config['layers_to_use'])
 
-        frame = _prepare_frame(image, use_noise, seed, target_width)
-        dreamed = _dream_frame(config, model, device, frame)
-        return (torch.from_numpy(dreamed).to(device).unsqueeze(0),)
+            frame = _prepare_frame(image, use_noise, seed, target_width)
+            dreamed = _dream_frame(config, model, device, frame)
+            return (torch.from_numpy(dreamed).to(device).unsqueeze(0),)
 
 
 class DeepDreamOuroboros:
@@ -163,16 +182,17 @@ class DeepDreamOuroboros:
         config['fps'] = fps
         config['frame_transform'] = frame_transform
         config['ouroboros_length'] = ouroboros_length
-        model = _get_dream_model(model_name, pretrained_weights, device)
-        _validate_layers(model, config['layers_to_use'])
+        with _autograd_enabled():
+            model = _get_dream_model(model_name, pretrained_weights, device)
+            _validate_layers(model, config['layers_to_use'])
 
-        frame = _prepare_frame(image, use_noise, seed, target_width)
-        frames = []
-        for _ in range(ouroboros_length):
-            frame = _dream_frame(config, model, device, frame)
-            frames.append(frame)
-            frame = utils.transform_frame(config, frame)
-        return (_frames_to_tensor(frames, device),)
+            frame = _prepare_frame(image, use_noise, seed, target_width)
+            frames = []
+            for _ in range(ouroboros_length):
+                frame = _dream_frame(config, model, device, frame)
+                frames.append(frame)
+                frame = utils.transform_frame(config, frame)
+            return (_frames_to_tensor(frames, device),)
 
 
 class DeepDreamVideo:
@@ -200,24 +220,25 @@ class DeepDreamVideo:
         _validate_dream_params(model_name, pretrained_weights, layers_to_use)
         config = _build_config(model_name, pretrained_weights, layers_to_use, pyramid_size, pyramid_ratio,
                                num_gradient_ascent_iterations, lr, spatial_shift_size, smoothing_coefficient)
-        model = _get_dream_model(model_name, pretrained_weights, device)
-        _validate_layers(model, config['layers_to_use'])
+        with _autograd_enabled():
+            model = _get_dream_model(model_name, pretrained_weights, device)
+            _validate_layers(model, config['layers_to_use'])
 
-        frames = image.to('cpu').detach().numpy().astype(np.float32)
-        last_dreamed = None
-        dreamed_frames = []
-        for i in range(frames.shape[0]):
-            frame = frames[i]
-            if use_noise:
-                rng = np.random.RandomState((seed + i) % (2**32))
-                frame = rng.uniform(low=0.0, high=1.0, size=frame.shape).astype(np.float32)
-            frame = _resize_to_width(frame, target_width)
-            if last_dreamed is not None:
-                frame = utils.linear_blend(last_dreamed, frame, blend)
-            dreamed_frame = _dream_frame(config, model, device, frame)
-            last_dreamed = dreamed_frame
-            dreamed_frames.append(dreamed_frame)
-        return (_frames_to_tensor(dreamed_frames, device),)
+            frames = image.to('cpu').detach().numpy().astype(np.float32)
+            last_dreamed = None
+            dreamed_frames = []
+            for i in range(frames.shape[0]):
+                frame = frames[i]
+                if use_noise:
+                    rng = np.random.RandomState((seed + i) % (2**32))
+                    frame = rng.uniform(low=0.0, high=1.0, size=frame.shape).astype(np.float32)
+                frame = _resize_to_width(frame, target_width)
+                if last_dreamed is not None:
+                    frame = utils.linear_blend(last_dreamed, frame, blend)
+                dreamed_frame = _dream_frame(config, model, device, frame)
+                last_dreamed = dreamed_frame
+                dreamed_frames.append(dreamed_frame)
+            return (_frames_to_tensor(dreamed_frames, device),)
 
 
 NODE_CLASS_MAPPINGS = {

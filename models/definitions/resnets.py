@@ -24,13 +24,17 @@ class ResNet50(torch.nn.Module):
             resnet50_places365_binary_path = os.path.join(BINARIES_PATH, binary_name)
 
             if os.path.exists(resnet50_places365_binary_path):
-                state_dict = torch.load(resnet50_places365_binary_path)['state_dict']
+                # map_location='cpu': the checkpoint was serialized on a CUDA box, so loading it
+                # as-is fails on CPU/MPS machines. The caller moves the built model to its device.
+                state_dict = torch.load(resnet50_places365_binary_path, map_location='cpu')['state_dict']
             else:
                 binary_url = r'http://places2.csail.mit.edu/models_places365/resnet50_places365.pth.tar'
                 print(f'Downloading {binary_name} from {binary_url} it may take some time.')
                 download_url_to_file(binary_url, resnet50_places365_binary_path)
                 print('Done downloading.')
-                state_dict = torch.load(resnet50_places365_binary_path)['state_dict']
+                # map_location='cpu': the checkpoint was serialized on a CUDA box, so loading it
+                # as-is fails on CPU/MPS machines. The caller moves the built model to its device.
+                state_dict = torch.load(resnet50_places365_binary_path, map_location='cpu')['state_dict']
 
             new_state_dict = {}  # modify key names and make it compatible with current PyTorch model naming scheme
             for old_key in state_dict.keys():
